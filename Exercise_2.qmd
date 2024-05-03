@@ -1,15 +1,25 @@
 ---
-title: "Exercise 2"
+title: "CMA Week 2 - Exercise 2"
+author: "Patrick Greber"
 format: html
 editor: visual
+warning: false
+message: false
+error: true
 ---
 
+This R-Project deals with exercise 2 from the **Computational Movement Analysis** module at the ZHAW in Wädenswil. The following sections are dedicated to the processing of exercises 2A to 2C.
+
 # Install Packages
+
+All required packages are installed and libraries loaded beforehand. The `p_intsall()` function from the `pacman()` package is used to install only the packages that are not currently available:
 
 ```{r}
 
 install.packages("pacman")
 library("pacman")
+
+# Packages are only installed, if not already available (p_install())
 
 p_install("dplyr", force = FALSE)
 p_install("ggplot2", force = FALSE)
@@ -25,8 +35,9 @@ p_install("patchwork", force = FALSE)
 p_install("tidyverse", force = FALSE)
 p_install("tidybayes", force = FALSE)
 p_install("ggdist", force = FALSE)
-
-install.packages("tidybayes")
+p_install("gitcreds", force = FALSE)
+p_install("rjson", force = FALSE)
+p_install("jsonlite", force = FALSE)
 
 library("dplyr")
 library("ggplot2")
@@ -42,30 +53,48 @@ library("patchwork")
 library("tidyverse")
 library("ggdist")
 library("tidybayes")
+library("gitcreds")
+library("rjson")
+library("jsonlite")
 
 ```
 
-# Exercise A
+# Exercise 2A
+
 ## Task 1: Import your data
+
+A new R-file is created and the needed wild boar data imported:
 
 ```{r}
 
 wildschwein_BE <- read_delim("wildschwein_BE_2056.csv", ",")
 
-wildschwein_BE <- st_as_sf(wildschwein_BE, coords = c("E", "N"), crs = 2056)
+# The data is converted into a spatial dataset, the coordinates are stored in the columns (E/N)
 
-wildschwein_BE
+wildschwein_BE <- st_as_sf(wildschwein_BE, coords = c("E", "N"), crs = 2056, remove = FALSE)
+
+head(wildschwein_BE)
 
 ```
-
 
 ## Task 2: Getting an overview
 
 ```{r}
 
+# How many individuals were tracked?
+
+wildschwein_BE$TierName |> unique() 
+
+# 3 Individuals (Rosa, Ruth and Sabi) were tracked
+
+
+# Define a function for calculating intervals between measurements
+
 difftime_secs <- function(later, now){
     as.numeric(difftime(later, now, units = "secs"))
 }
+
+# Save timelag between two fixes in a new column named timelag
 
 wildschwein_BE <- wildschwein_BE |> 
   group_by(TierID) |> 
@@ -73,9 +102,14 @@ wildschwein_BE <- wildschwein_BE |>
     timelag = difftime_secs(lead(DatetimeUTC), DatetimeUTC)
 )
 
-wildschwein_BE
+summary(wildschwein_BE)
 
-# 3 Individuals were tracked
+# Measurements from 22.08.2014 to 27.07.2015 with an interval between 12 (min) and 60367 (max) seconds
+
+# 1 002A   2014-08-22 21:00:12 2015-07-27 11:00:14
+# 2 016A   2014-11-07 07:45:44 2015-06-29 23:45:11
+# 3 018A   2014-11-07 18:00:43 2015-07-27 09:45:15
+
 
 wildschwein_BE <- wildschwein_BE |> 
   group_by(TierID) |>
@@ -85,62 +119,66 @@ wildschwein_BE <- wildschwein_BE |>
     obs = difftime_secs(max, min)
   )
 
+# Are there any larger gaps between two fixes?
+
 sum(wildschwein_BE$timelag > 2000, na.rm = TRUE)
-  
+
+# Yes, there are 5315 entries with timelags of more than 2000 seconds
 
 ggplot(wildschwein_BE, aes(timelag, TierID)) +
-  #geom_point(alpha = .3, position = position_jitter(seed = 1, width = .2)) + 
- ggdist::stat_dots(
-    side = "left", 
-    dotsize = .8, 
-    justification = 1.05, 
-    binwidth = .5,
-    quantiles = 100
- )
-  
+  geom_point(alpha = .3, position = position_jitter(seed = 1, width = .2))
 
-# 1 002A   2014-08-22 21:00:12 2015-07-27 11:00:14
-# 2 016A   2014-11-07 07:45:44 2015-06-29 23:45:11
-# 3 018A   2014-11-07 18:00:43 2015-07-27 09:45:15
+# timelags per tracked animal (visualised)
+
 
 ```
 
-
-
 ## Task 3: Distance between locations
 
+Calculating the distance between two locations:
 
 ```{r}
 
 now <- wildschwein_BE$geometry
 later <- lag(wildschwein_BE$geometry)
 
+# Similar to the timelag function (Task 2), we define a function to calculate the euclidean distance between two fixes
+
 distance_by_element <- function(later, now) {
   as.numeric(
-    st_distance(later, now, by_element = TRUE)
+    st_distance(later, now, by_element = TRUE) # by_element must be set to TRUE
   )
 }
 
-wildschwein_BE$steplength <- distance_by_element(later, now)
+wildschwein_BE$steplength <- distance_by_element(later, now) # save distance between fixes in a new column steplength
 
 ```
 
 ## Task 4: Deriving distance and speed
 
+Thanks to the two variables `steplength` and `timelag`, we are now able to calculate further parameters such as the speed of the animals:
+
 ```{r}
+
+# Calculate speed based on steplength and timelag and save output in a new column
 
 wildschwein_BE$speed <- wildschwein_BE$steplength / wildschwein_BE$timelag
 
 ```
 
-
 ## Task 5: Plausability Check
 
+It’s important to repeatedly visualize our results, to make sure these are plausible.
+
 ```{r}
+
+# Reduce dataset to a small sample of 100 timestamps
 
 wildschwein_sample <- wildschwein_BE |> 
   filter(TierName == "Sabi") |>
   head(100)
+
+# visualize the reduced sample
 
 library(tmap)
 tmap_mode("view")
@@ -149,6 +187,7 @@ tm_shape(wildschwein_sample) +
   tm_dots()
 
 
+# Add lines between the fixed locations to see the sequence of the sample
 
 wildschwein_sample_line <- wildschwein_sample |> 
   # dissolve to a MULTIPOINT:
@@ -164,19 +203,19 @@ tm_shape(wildschwein_sample_line) +
 
 ```
 
+# Exercise 2B
 
-# Exercise B
+The functions from 2A are read in again in preparation for output 2B. A new data record `caro60` is also read in. The following tasks are dedicated to the calculation of the speed of wild boars, taking into account different time scales.
 
 ```{r}
 
-# Import Dataset
+# Import Dataset caro60
 
 caro <- read_delim("caro60.csv", ",") |> 
   st_as_sf(coords = c("E", "N"), crs = 2056) |> 
   select(DatetimeUTC)
 
-
-# Import Functions
+# Read in the functions from exercise 2A again
 
 difftime_secs <- function(x, y){
   as.numeric(difftime(x, y, units = "secs"))
@@ -192,15 +231,16 @@ distance_by_element <- function(later, now){
 
 ## Task 1: Calculate Speed at scale 1
 
+Assumed sampling window of **120 seconds**.
 
 ```{r}
+
 head(caro)
 
 y <- lead(caro$DatetimeUTC)
 x <- lag(caro$DatetimeUTC)
 
 caro$timelag <- difftime_secs(y,x)
-
 
 now <- lag(caro$geometry)
 later <- lead(caro$geometry)
@@ -213,13 +253,14 @@ caro$speed <- caro$steplength / caro$timelag
 
 ## Task 2: Calculate speed at scale 2
 
+Assumed sampling window of **240 seconds**.
+
 ```{r}
 
 y2 <- lead(caro$DatetimeUTC, n = 2)
 x2 <- lag(caro$DatetimeUTC, n = 2)
 
 caro$timelag2 <- difftime_secs(y2,x2)
-
 
 now2 <- lag(caro$geometry, n = 2)
 later2 <- lead(caro$geometry, n = 2)
@@ -232,13 +273,14 @@ caro$speed2 <- caro$steplength2 / caro$timelag2
 
 ## Task 3: Calculate speed at scale 3
 
+Assumed sampling window of **480 seconds**.
+
 ```{r}
 
 y3 <- lead(caro$DatetimeUTC, n = 4)
 x3 <- lag(caro$DatetimeUTC, n = 4)
 
 caro$timelag3 <- difftime_secs(y3,x3)
-
 
 now3 <- lag(caro$geometry, n = 4)
 later3 <- lead(caro$geometry, n = 4)
@@ -251,18 +293,18 @@ caro$speed3 <- caro$steplength3 / caro$timelag3
 
 ## Task 4: Compare speed across scales
 
+We now have a dataframe with three different speed values per sample, corresponding to the different scales / sampling windows. It would now be interesting to compare these measurements and see our results correspond to those of Laube and Purves (2011). In their experiments, the authors observe:
+
 ```{r}
 
 caro |> 
   st_drop_geometry() |> 
   select(DatetimeUTC, speed, speed2, speed3)
 
-
 ggplot(caro, aes(y = speed)) + 
     # we remove outliers to increase legibility, analogue
   # Laube and Purves (2011)
   geom_boxplot(outliers = FALSE)
-
 
 caro2 <- caro |> 
   st_drop_geometry() |> 
@@ -271,16 +313,98 @@ caro2 <- caro |>
 caro_long <- caro2 |> 
   pivot_longer(c(speed, speed2, speed3))
 
-
 head(caro_long)
-
 
 ggplot(caro_long, aes(name, value)) +
   geom_boxplot(outliers = FALSE)
 
 ```
 
-# Änderung zur Verisonskontrolle
 
-Folgender Text ist nur da, damit ich kontrollieren ob auch wirklich eine Versionskontrolle stattfindet
+# Exercise 2C
+
+## Import your data
+
+Movement data was tracked using google timeline in April. In Microsoft Excel, the movement data (json format) was “un-nested” beforehand. Google timeline differs between places visited (visits) and movement activities (such as train rides etc.). Places visited are stored with a single longitudinal and latitudinal coordinate. The activities have corresponding starting and ending coordinates (two fixes per trajectory). 
+
+```{r}
+
+# Import own movement data
+
+activity <- read_delim("timeline_raw_export_activity.csv", ";") 
+
+visit <- read_delim("timeline_raw_export_visit.csv", ";")
+
+
+# Transform data in a spatial dataset
+
+visit_sf <- st_as_sf(visit,
+    coords = c("visit_longitude", "visit_latitude"),
+    crs = 4326 
+    )
+
+# crs 4326 is the coordinate reference system code for WGS
+
+visit_sf <- st_transform(visit_sf, 2056)
+
+visit_sf
+
+str(visit_sf)
+
+
+# Repeating workflow with dataset activity_start (fix 1)
+# remember, activities hava a starting and ending pair of coordinates!
+
+activity_start_sf <- activity |>  st_as_sf(
+    coords = c("activity_start_longitude", "activity_start_latitude"),
+    crs = 4326 
+    ) |> 
+  rename("geometry_start" = "geometry")
+
+activity_start_sf <- st_transform(activity_start_sf, 2056)
+
+activity_start_sf
+
+str(activity_start_sf)
+
+
+# Repeating workflow with dataset activity_end (fix 2)
+
+activity_end_sf <- activity |>  st_as_sf(
+    coords = c("activity_end_longitude", "activity_end_latitude"),
+    crs = 4326 
+    ) |> 
+  rename("geometry_end" = "geometry")
+
+activity_end_sf <- st_transform(activity_end_sf, 2056)
+
+activity_end_sf
+
+str(activity_end_sf)
+
+```
+
+## Getting an overview
+
+The movement data is quickly visualised. It is easy to see that my own movement data is not sufficient enough for any further analysis.For the future semester project, other sources of data is required:
+
+```{r}
+
+tmap_mode("view")
+
+tm_shape(visit_sf) + 
+  tm_dots()
+
+visit_sf_sample_lines <- visit_sf |> 
+  # dissolve to a MULTIPOINT:
+  summarise(do_union = FALSE) |> 
+  st_cast("LINESTRING")
+
+
+tm_shape(activity_start_sf) + 
+  tm_dots() +
+  tm_shape(activity_end_sf) +
+  tm_dots(col = "red")
+
+```
 
