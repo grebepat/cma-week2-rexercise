@@ -1,0 +1,284 @@
+---
+title: "Exercise 2"
+format: html
+editor: visual
+---
+
+# Install Packages
+
+```{r}
+
+install.packages("pacman")
+library("pacman")
+
+p_install("dplyr", force = FALSE)
+p_install("ggplot2", force = FALSE)
+p_install("readr", force = FALSE)
+p_install("tidyr", force = FALSE)
+p_install("sf", force = FALSE)
+p_install("terra", force = FALSE)
+p_install("tmap", force = FALSE)
+p_install("zoo", force = FALSE)
+p_install("units", force = FALSE)
+p_install("plotly", force = FALSE)
+p_install("patchwork", force = FALSE)
+p_install("tidyverse", force = FALSE)
+p_install("tidybayes", force = FALSE)
+p_install("ggdist", force = FALSE)
+
+install.packages("tidybayes")
+
+library("dplyr")
+library("ggplot2")
+library("tidyr")
+library("sf")
+library("terra")
+library("tmap")
+library("zoo")
+library("zoo")
+library("units")
+library("plotly")
+library("patchwork")
+library("tidyverse")
+library("ggdist")
+library("tidybayes")
+
+```
+
+# Exercise A
+## Task 1: Import your data
+
+```{r}
+
+wildschwein_BE <- read_delim("wildschwein_BE_2056.csv", ",")
+
+wildschwein_BE <- st_as_sf(wildschwein_BE, coords = c("E", "N"), crs = 2056)
+
+wildschwein_BE
+
+```
+
+
+## Task 2: Getting an overview
+
+```{r}
+
+difftime_secs <- function(later, now){
+    as.numeric(difftime(later, now, units = "secs"))
+}
+
+wildschwein_BE <- wildschwein_BE |> 
+  group_by(TierID) |> 
+  mutate(
+    timelag = difftime_secs(lead(DatetimeUTC), DatetimeUTC)
+)
+
+wildschwein_BE
+
+# 3 Individuals were tracked
+
+wildschwein_BE <- wildschwein_BE |> 
+  group_by(TierID) |>
+  mutate(
+    min = min(DatetimeUTC),
+    max = max(DatetimeUTC),
+    obs = difftime_secs(max, min)
+  )
+
+sum(wildschwein_BE$timelag > 2000, na.rm = TRUE)
+  
+
+ggplot(wildschwein_BE, aes(timelag, TierID)) +
+  #geom_point(alpha = .3, position = position_jitter(seed = 1, width = .2)) + 
+ ggdist::stat_dots(
+    side = "left", 
+    dotsize = .8, 
+    justification = 1.05, 
+    binwidth = .5,
+    quantiles = 100
+ )
+  
+
+# 1 002A   2014-08-22 21:00:12 2015-07-27 11:00:14
+# 2 016A   2014-11-07 07:45:44 2015-06-29 23:45:11
+# 3 018A   2014-11-07 18:00:43 2015-07-27 09:45:15
+
+```
+
+
+
+## Task 3: Distance between locations
+
+
+```{r}
+
+now <- wildschwein_BE$geometry
+later <- lag(wildschwein_BE$geometry)
+
+distance_by_element <- function(later, now) {
+  as.numeric(
+    st_distance(later, now, by_element = TRUE)
+  )
+}
+
+wildschwein_BE$steplength <- distance_by_element(later, now)
+
+```
+
+## Task 4: Deriving distance and speed
+
+```{r}
+
+wildschwein_BE$speed <- wildschwein_BE$steplength / wildschwein_BE$timelag
+
+```
+
+
+## Task 5: Plausability Check
+
+```{r}
+
+wildschwein_sample <- wildschwein_BE |> 
+  filter(TierName == "Sabi") |>
+  head(100)
+
+library(tmap)
+tmap_mode("view")
+
+tm_shape(wildschwein_sample) + 
+  tm_dots()
+
+
+
+wildschwein_sample_line <- wildschwein_sample |> 
+  # dissolve to a MULTIPOINT:
+  summarise(do_union = FALSE) |> 
+  st_cast("LINESTRING")
+
+tmap_options(basemaps = "OpenStreetMap")
+
+tm_shape(wildschwein_sample_line) +
+  tm_lines() +
+  tm_shape(wildschwein_sample) + 
+  tm_dots()
+
+```
+
+
+# Exercise B
+
+```{r}
+
+# Import Dataset
+
+caro <- read_delim("caro60.csv", ",") |> 
+  st_as_sf(coords = c("E", "N"), crs = 2056) |> 
+  select(DatetimeUTC)
+
+
+# Import Functions
+
+difftime_secs <- function(x, y){
+  as.numeric(difftime(x, y, units = "secs"))
+}
+
+distance_by_element <- function(later, now){
+  as.numeric(
+    st_distance(later, now, by_element = TRUE)
+  )
+}
+
+```
+
+## Task 1: Calculate Speed at scale 1
+
+
+```{r}
+head(caro)
+
+y <- lead(caro$DatetimeUTC)
+x <- lag(caro$DatetimeUTC)
+
+caro$timelag <- difftime_secs(y,x)
+
+
+now <- lag(caro$geometry)
+later <- lead(caro$geometry)
+
+caro$steplength <- distance_by_element(later, now)
+
+caro$speed <- caro$steplength / caro$timelag
+
+```
+
+## Task 2: Calculate speed at scale 2
+
+```{r}
+
+y2 <- lead(caro$DatetimeUTC, n = 2)
+x2 <- lag(caro$DatetimeUTC, n = 2)
+
+caro$timelag2 <- difftime_secs(y2,x2)
+
+
+now2 <- lag(caro$geometry, n = 2)
+later2 <- lead(caro$geometry, n = 2)
+
+caro$steplength2 <- distance_by_element(later2, now2)
+
+caro$speed2 <- caro$steplength2 / caro$timelag2
+
+```
+
+## Task 3: Calculate speed at scale 3
+
+```{r}
+
+y3 <- lead(caro$DatetimeUTC, n = 4)
+x3 <- lag(caro$DatetimeUTC, n = 4)
+
+caro$timelag3 <- difftime_secs(y3,x3)
+
+
+now3 <- lag(caro$geometry, n = 4)
+later3 <- lead(caro$geometry, n = 4)
+
+caro$steplength3 <- distance_by_element(later3, now3)
+
+caro$speed3 <- caro$steplength3 / caro$timelag3
+
+```
+
+## Task 4: Compare speed across scales
+
+```{r}
+
+caro |> 
+  st_drop_geometry() |> 
+  select(DatetimeUTC, speed, speed2, speed3)
+
+
+ggplot(caro, aes(y = speed)) + 
+    # we remove outliers to increase legibility, analogue
+  # Laube and Purves (2011)
+  geom_boxplot(outliers = FALSE)
+
+
+caro2 <- caro |> 
+  st_drop_geometry() |> 
+  select(DatetimeUTC, speed, speed2, speed3)
+
+caro_long <- caro2 |> 
+  pivot_longer(c(speed, speed2, speed3))
+
+
+head(caro_long)
+
+
+ggplot(caro_long, aes(name, value)) +
+  geom_boxplot(outliers = FALSE)
+
+```
+
+
+
